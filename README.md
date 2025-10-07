@@ -144,6 +144,14 @@ int main() {
 
 Reusable One shot
 
+Note:
+std::promise/std::future cannot be safely reset while another thread is waiting on get() or trying to set_value().
+So don’t call reset() inside threads at all.
+
+Only call reset() after all threads complete, or use multiple independent channels per thread.
+
+See the stress tests for an example of how to do this.
+
 ### Reusable Channel
 
 ```

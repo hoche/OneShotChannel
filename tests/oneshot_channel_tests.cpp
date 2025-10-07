@@ -134,3 +134,70 @@ TEST(OneShotChannelVoidTest, ExceptionPropagation) {
     t.join();
 }
 
+// --------------------------------------------------
+// Stress Tests: OneShotChannel<int>
+// To avoid calling reset, each iteration gets its own
+// channel.
+// --------------------------------------------------
+TEST(OneShotChannelStressTest, HighConcurrencyInt) {
+    constexpr int kThreads = 20;
+    constexpr int kIterations = 50;
+
+    std::atomic<int> total{0};
+    std::vector<std::thread> threads;
+
+    for (int t = 0; t < kThreads; ++t) {
+        threads.emplace_back([t, &total]() {
+            for (int i = 0; i < kIterations; ++i) {
+                auto [s, r] = OneShotChannel<int>::make();
+                int val = t * 1000 + i;
+
+                std::thread sender_thread([s = std::move(s), val]() mutable {
+                    s.set_value(val);
+                });
+
+                int received = r.get();
+                EXPECT_EQ(received, val);
+                total.fetch_add(1, std::memory_order_relaxed);
+
+                sender_thread.join();
+            }
+        });
+    }
+
+    for (auto &th : threads) th.join();
+    EXPECT_EQ(total.load(), kThreads * kIterations);
+}
+
+// --------------------------------------------------
+// Stress Tests: OneShotChannel<void>
+// To avoid calling reset, each iteration gets its own
+// channel.
+// --------------------------------------------------
+TEST(OneShotChannelStressTest, HighConcurrencyVoid) {
+    constexpr int kThreads = 20;
+    constexpr int kIterations = 50;
+
+    std::atomic<int> total{0};
+    std::vector<std::thread> threads;
+
+    for (int t = 0; t < kThreads; ++t) {
+        threads.emplace_back([&total]() {
+            for (int i = 0; i < kIterations; ++i) {
+                auto [s, r] = OneShotChannel<void>::make();
+
+                std::thread sender_thread([s = std::move(s)]() mutable {
+                    s.set_value();
+                });
+
+                r.get();
+                total.fetch_add(1, std::memory_order_relaxed);
+
+                sender_thread.join();
+            }
+        });
+    }
+
+    for (auto &th : threads) th.join();
+    EXPECT_EQ(total.load(), kThreads * kIterations);
+}
