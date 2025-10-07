@@ -4,6 +4,7 @@ Single-use one-shot future
 
 ### Timed get and broken promise
 
+```
 #include "one_shot.hpp"
 #include <iostream>
 #include <thread>
@@ -25,10 +26,11 @@ int main() {
 
     t.join();
 }
-
+```
 
 ### void variant and broken sender
 
+```
 #include "one_shot.hpp"
 #include <iostream>
 
@@ -44,6 +46,7 @@ int main() {
         std::cout << "Caught: " << e.what() << "\n";
     }
 }
+```
 
 ## OneShotChannel.hpp
 
@@ -51,6 +54,7 @@ Reusable
 
 ### Reusable Channel
 
+```
 #include "one_shot_channel.hpp"
 #include <iostream>
 #include <thread>
@@ -75,5 +79,5 @@ int main() {
         worker.join();
     }
 }
-
+```
 
