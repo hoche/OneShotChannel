@@ -2,6 +2,76 @@
 
 Single-use one-shot future
 
+### Blocking get with simple value transfer
+
+```
+#include "one_shot.hpp"
+#include <iostream>
+#include <thread>
+
+int main() {
+    auto [sender, receiver] = OneShot<int>::make();
+
+    std::thread producer([s = std::move(sender)]() mutable {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        s.set_value(42);
+    });
+
+    int val = receiver.get();  // blocks until value is set
+    std::cout << "Received value: " << val << std::endl;
+
+    producer.join();
+}
+```
+
+### Time get with optional value
+
+```
+#include "one_shot.hpp"
+#include <iostream>
+#include <thread>
+#include <optional>
+
+int main() {
+    auto [sender, receiver] = OneShot<int>::make();
+
+    std::thread producer([s = std::move(sender)]() mutable {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        s.set_value(99);
+    });
+
+    if (auto val = receiver.get_for(std::chrono::milliseconds(50))) {
+        std::cout << "Got early: " << *val << std::endl;
+    } else {
+        std::cout << "Timeout, waiting longer..." << std::endl;
+        int final_val = receiver.get();
+        std::cout << "Got later: " << final_val << std::endl;
+    }
+
+    producer.join();
+}
+```
+
+### Broken promise
+
+```
+#include "one_shot.hpp"
+#include <iostream>
+
+int main() {
+    auto [sender, receiver] = OneShot<int>::make();
+
+    // destroy sender without setting a value
+    sender = {};
+
+    try {
+        receiver.get();
+    } catch (const std::future_error &e) {
+        std::cout << "Caught exception: " << e.what() << std::endl;
+    }
+}
+```
+
 ### Timed get and broken promise
 
 ```
@@ -28,7 +98,29 @@ int main() {
 }
 ```
 
-### void variant and broken sender
+### void variant
+
+```
+#include "one_shot.hpp"
+#include <iostream>
+#include <thread>
+
+int main() {
+    auto [sender, receiver] = OneShot<void>::make();
+
+    std::thread task([s = std::move(sender)]() mutable {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        s.set_value();  // signal completion
+    });
+
+    receiver.get();  // waits until signaled
+    std::cout << "Task completed!" << std::endl;
+
+    task.join();
+}
+```
+
+### void variant with broken sender
 
 ```
 #include "one_shot.hpp"
@@ -50,7 +142,7 @@ int main() {
 
 ## OneShotChannel.hpp
 
-Reusable
+Reusable One shot
 
 ### Reusable Channel
 
@@ -80,4 +172,65 @@ int main() {
     }
 }
 ```
+Output
+```
+Got: 0
+Got: 10
+Got: 20
+```
 
+### Reusable Channel with void signals
+
+```
+#include "one_shot_channel.hpp"
+#include <iostream>
+#include <thread>
+
+int main() {
+    auto [sender, receiver] = OneShotChannel<void>::make();
+
+    for (int i = 0; i < 3; ++i) {
+        std::thread t([s = sender]() mutable {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            s.set_value();
+        });
+
+        if (receiver.get_for(std::chrono::milliseconds(100)))
+            std::cout << "Signal received!\n";
+
+        sender.reset();
+        receiver.reset();
+        t.join();
+    }
+}
+```
+Output
+```
+Signal received!
+Signal received!
+Signal received!
+```
+
+### Exception Propagation
+
+```
+#include "one_shot.hpp"
+#include <iostream>
+#include <thread>
+
+int main() {
+    auto [sender, receiver] = OneShot<int>::make();
+
+    std::thread t([s = std::move(sender)]() mutable {
+        s.set_exception(std::make_exception_ptr(std::runtime_error("Something went wrong")));
+    });
+
+    try {
+        receiver.get();
+    } catch (const std::runtime_error &e) {
+        std::cout << "Caught runtime error: " << e.what() ZZ<< std::endl;
+    }
+
+    t.join();
+}
+```
