@@ -48,7 +48,7 @@ TEST(OneShotChannelTest, TimeoutAndReset) {
     producer.join();
 }
 
-TEST(OneShotChannelTest, DISABLED_BrokenPromiseThrows) {
+TEST(OneShotChannelTest, BrokenPromiseThrows) {
     auto [s, r] = OneShotChannel<int>::make();
 
     // destroy sender
@@ -119,7 +119,7 @@ TEST(OneShotChannelVoidTest, ResetAndReuse) {
     t.join();
 }
 
-TEST(OneShotChannelVoidTest, DISABLED_BrokenPromiseThrows) {
+TEST(OneShotChannelVoidTest, BrokenPromiseThrows) {
     auto [s, r] = OneShotChannel<void>::make();
     s = {};
     EXPECT_THROW(r.get(), std::future_error);

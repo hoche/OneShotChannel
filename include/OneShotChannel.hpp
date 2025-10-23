@@ -1,9 +1,5 @@
-/**
- * Copyright @ 2024 Michel Hoche-Mong
- * SPDX-License-Identifier: CC-BY-4.0
- */
-
 #pragma once
+
 #include <future>
 #include <memory>
 #include <atomic>
@@ -16,6 +12,8 @@
 // A resettable "one-shot" channel using std::promise/std::future under the hood
 // C++17-compatible
 //
+// Thread safety: Senders serialize via promise operations. Receivers use shared_future
+// with copy-under-lock pattern to allow safe concurrent reset() without data races.
 template<typename T>
 class OneShotChannel {
 public:
@@ -26,14 +24,14 @@ private:
     struct Shared {
         std::mutex mtx;
         std::promise<T> promise;
-        std::future<T> future;
+        std::shared_future<T> future;  // shared_future allows multiple concurrent readers
         bool used = false;
 
-        Shared() : future(promise.get_future()) {}
+        Shared() : future(promise.get_future().share()) {}
 
         void reset_locked() {
             promise = std::promise<T>();
-            future = promise.get_future();
+            future = promise.get_future().share();
             used = false;
         }
     };
@@ -58,7 +56,23 @@ public:
         explicit Sender(std::shared_ptr<Shared> s) : state_(std::move(s)) {}
 
         Sender(Sender&&) noexcept = default;
-        Sender& operator=(Sender&&) noexcept = default;
+        Sender& operator=(Sender&& other) noexcept {
+            if (this != &other) {
+                // If current sender has state and is being replaced, set broken promise
+                if (state_) {
+                    std::lock_guard<std::mutex> lock(state_->mtx);
+                    if (!state_->used) {
+                        try {
+                            state_->promise.set_exception(std::make_exception_ptr(
+                                std::future_error(std::future_errc::broken_promise)));
+                            state_->used = true;
+                        } catch (...) {}
+                    }
+                }
+                state_ = std::move(other.state_);
+            }
+            return *this;
+        }
         Sender(const Sender&) = delete;
         Sender& operator=(const Sender&) = delete;
 
@@ -69,6 +83,7 @@ public:
                     try {
                         state_->promise.set_exception(std::make_exception_ptr(
                             std::future_error(std::future_errc::broken_promise)));
+                        state_->used = true;
                     } catch (...) {}
                 }
             }
@@ -117,21 +132,46 @@ public:
         Receiver& operator=(const Receiver&) = delete;
 
         T get() {
+            // Copy future under lock to avoid race with reset()
             if (!state_) throw std::future_error(std::future_errc::no_state);
-            return state_->future.get();
+            std::shared_future<T> local;
+            {
+                std::lock_guard<std::mutex> lock(state_->mtx);
+                local = state_->future;
+            }
+            return local.get();
         }
 
         bool ready() const {
+            // Copy future under lock to avoid race with reset()
             if (!state_) return false;
             using namespace std::chrono_literals;
-            return state_->future.wait_for(0s) == std::future_status::ready;
+            std::shared_future<T> local;
+            {
+                std::lock_guard<std::mutex> lock(state_->mtx);
+                local = state_->future;
+            }
+            return local.wait_for(0s) == std::future_status::ready;
         }
 
         template<typename Rep, typename Period>
         std::optional<T> get_for(const std::chrono::duration<Rep, Period>& dur) {
+            // Copy future under lock to avoid race with reset().
+            // If an exception occurs (e.g., broken_promise during concurrent reset),
+            // it is swallowed and std::nullopt is returned (same as timeout).
             if (!state_) return std::nullopt;
-            if (state_->future.wait_for(dur) == std::future_status::ready) {
-                return state_->future.get();
+            std::shared_future<T> local;
+            {
+                std::lock_guard<std::mutex> lock(state_->mtx);
+                local = state_->future;
+            }
+            if (local.wait_for(dur) == std::future_status::ready) {
+                try {
+                    return local.get();
+                } catch (...) {
+                    // Treat broken/exceptional state as not available under timed get
+                    return std::nullopt;
+                }
             }
             return std::nullopt;
         }
@@ -151,6 +191,7 @@ public:
 //
 // void specialization
 //
+// Same thread-safety model as OneShotChannel<T>.
 template<>
 class OneShotChannel<void> {
 public:
@@ -161,14 +202,14 @@ private:
     struct Shared {
         std::mutex mtx;
         std::promise<void> promise;
-        std::future<void> future;
+        std::shared_future<void> future;  // shared_future allows multiple concurrent readers
         bool used = false;
 
-        Shared() : future(promise.get_future()) {}
+        Shared() : future(promise.get_future().share()) {}
 
         void reset_locked() {
             promise = std::promise<void>();
-            future = promise.get_future();
+            future = promise.get_future().share();
             used = false;
         }
     };
@@ -188,7 +229,23 @@ public:
         Sender() = default;
         explicit Sender(std::shared_ptr<Shared> s) : state_(std::move(s)) {}
         Sender(Sender&&) noexcept = default;
-        Sender& operator=(Sender&&) noexcept = default;
+        Sender& operator=(Sender&& other) noexcept {
+            if (this != &other) {
+                // If current sender has state and is being replaced, set broken promise
+                if (state_) {
+                    std::lock_guard<std::mutex> lock(state_->mtx);
+                    if (!state_->used) {
+                        try {
+                            state_->promise.set_exception(std::make_exception_ptr(
+                                std::future_error(std::future_errc::broken_promise)));
+                            state_->used = true;
+                        } catch (...) {}
+                    }
+                }
+                state_ = std::move(other.state_);
+            }
+            return *this;
+        }
         Sender(const Sender&) = delete;
         Sender& operator=(const Sender&) = delete;
 
@@ -199,6 +256,7 @@ public:
                     try {
                         state_->promise.set_exception(std::make_exception_ptr(
                             std::future_error(std::future_errc::broken_promise)));
+                        state_->used = true;
                     } catch (...) {}
                 }
             }
@@ -244,22 +302,47 @@ public:
         Receiver& operator=(const Receiver&) = delete;
 
         void get() {
+            // Copy future under lock to avoid race with reset()
             if (!state_) throw std::future_error(std::future_errc::no_state);
-            state_->future.get();
+            std::shared_future<void> local;
+            {
+                std::lock_guard<std::mutex> lock(state_->mtx);
+                local = state_->future;
+            }
+            local.get();
         }
 
         bool ready() const {
+            // Copy future under lock to avoid race with reset()
             if (!state_) return false;
             using namespace std::chrono_literals;
-            return state_->future.wait_for(0s) == std::future_status::ready;
+            std::shared_future<void> local;
+            {
+                std::lock_guard<std::mutex> lock(state_->mtx);
+                local = state_->future;
+            }
+            return local.wait_for(0s) == std::future_status::ready;
         }
 
         template<typename Rep, typename Period>
         bool get_for(const std::chrono::duration<Rep, Period>& dur) {
+            // Copy future under lock to avoid race with reset().
+            // If an exception occurs (e.g., broken_promise during concurrent reset),
+            // it is swallowed and false is returned (same as timeout).
             if (!state_) return false;
-            if (state_->future.wait_for(dur) == std::future_status::ready) {
-                state_->future.get();
-                return true;
+            std::shared_future<void> local;
+            {
+                std::lock_guard<std::mutex> lock(state_->mtx);
+                local = state_->future;
+            }
+            if (local.wait_for(dur) == std::future_status::ready) {
+                try {
+                    local.get();
+                    return true;
+                } catch (...) {
+                    // Treat broken/exceptional state as not available under timed get
+                    return false;
+                }
             }
             return false;
         }
