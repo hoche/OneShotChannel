@@ -12,7 +12,9 @@ using namespace std::chrono_literals;
 // --------------------------------------------------
 
 TEST(OneShotTest, SimpleValueTransfer) {
-    auto [s, r] = OneShot<int>::make();
+    auto pair = OneShot<int>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     std::thread producer([&]() {
         std::this_thread::sleep_for(50ms);
@@ -25,7 +27,9 @@ TEST(OneShotTest, SimpleValueTransfer) {
 }
 
 TEST(OneShotTest, TimeoutAndThenGet) {
-    auto [s, r] = OneShot<int>::make();
+    auto pair = OneShot<int>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     std::thread producer([&]() {
         std::this_thread::sleep_for(150ms);
@@ -42,7 +46,9 @@ TEST(OneShotTest, TimeoutAndThenGet) {
 }
 
 TEST(OneShotTest, ExceptionPropagation) {
-    auto [s, r] = OneShot<int>::make();
+    auto pair = OneShot<int>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     std::thread producer([&]() {
         s.set_exception(std::make_exception_ptr(std::runtime_error("fail")));
@@ -53,7 +59,9 @@ TEST(OneShotTest, ExceptionPropagation) {
 }
 
 TEST(OneShotTest, BrokenPromiseThrows) {
-    auto [s, r] = OneShot<int>::make();
+    auto pair = OneShot<int>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     // Destroy sender without setting a value
     s = {};
@@ -61,7 +69,10 @@ TEST(OneShotTest, BrokenPromiseThrows) {
 }
 
 TEST(OneShotTest, ReadyCheck) {
-    auto [s, r] = OneShot<int>::make();
+    auto pair = OneShot<int>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
+
     EXPECT_FALSE(r.ready());
     s.set_value(5);
     EXPECT_TRUE(r.ready());
@@ -73,7 +84,9 @@ TEST(OneShotTest, ReadyCheck) {
 // --------------------------------------------------
 
 TEST(OneShotVoidTest, SimpleSignal) {
-    auto [s, r] = OneShot<void>::make();
+    auto pair = OneShot<void>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     std::thread t([&]() {
         std::this_thread::sleep_for(50ms);
@@ -86,14 +99,20 @@ TEST(OneShotVoidTest, SimpleSignal) {
 }
 
 TEST(OneShotVoidTest, Timeout) {
-    auto [s, r] = OneShot<void>::make();
+    auto pair = OneShot<void>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
+
     EXPECT_FALSE(r.get_for(20ms));
     s.set_value();
     EXPECT_TRUE(r.get_for(100ms));
 }
 
 TEST(OneShotVoidTest, BrokenPromiseThrows) {
-    auto [s, r] = OneShot<void>::make();
+    auto pair = OneShot<void>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
+
     s = {};
     EXPECT_THROW(r.get(), std::future_error);
 }

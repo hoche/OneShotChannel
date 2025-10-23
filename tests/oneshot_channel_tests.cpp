@@ -12,7 +12,9 @@ using namespace std::chrono_literals;
 // --------------------------------------------------
 
 TEST(OneShotChannelTest, SimpleValueTransfer) {
-    auto [s, r] = OneShotChannel<int>::make();
+    auto pair = OneShotChannel<int>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     std::thread producer([&]() {
         std::this_thread::sleep_for(50ms);
@@ -25,7 +27,9 @@ TEST(OneShotChannelTest, SimpleValueTransfer) {
 }
 
 TEST(OneShotChannelTest, TimeoutAndReset) {
-    auto [s, r] = OneShotChannel<int>::make();
+    auto pair = OneShotChannel<int>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     EXPECT_FALSE(r.get_for(20ms)); // no value yet
 
@@ -57,7 +61,9 @@ TEST(OneShotChannelTest, BrokenPromiseThrows) {
 }
 
 TEST(OneShotChannelTest, ExceptionPropagation) {
-    auto [s, r] = OneShotChannel<int>::make();
+    auto pair = OneShotChannel<int>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     std::thread producer([&]() {
         s.set_exception(std::make_exception_ptr(std::runtime_error("bad")));
@@ -68,7 +74,9 @@ TEST(OneShotChannelTest, ExceptionPropagation) {
 }
 
 TEST(OneShotChannelTest, MultipleResetsWork) {
-    auto [s, r] = OneShotChannel<int>::make();
+    auto pair = OneShotChannel<int>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     for (int i = 0; i < 3; ++i) {
         std::thread t([&, i]() mutable {
@@ -89,7 +97,9 @@ TEST(OneShotChannelTest, MultipleResetsWork) {
 // --------------------------------------------------
 
 TEST(OneShotChannelVoidTest, BasicSignal) {
-    auto [s, r] = OneShotChannel<void>::make();
+    auto pair = OneShotChannel<void>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     std::thread producer([&]() {
         std::this_thread::sleep_for(50ms);
@@ -102,7 +112,9 @@ TEST(OneShotChannelVoidTest, BasicSignal) {
 }
 
 TEST(OneShotChannelVoidTest, ResetAndReuse) {
-    auto [s, r] = OneShotChannel<void>::make();
+    auto pair = OneShotChannel<void>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
 
     s.set_value();
     r.get(); // ok
@@ -120,13 +132,19 @@ TEST(OneShotChannelVoidTest, ResetAndReuse) {
 }
 
 TEST(OneShotChannelVoidTest, BrokenPromiseThrows) {
-    auto [s, r] = OneShotChannel<void>::make();
+    auto pair = OneShotChannel<void>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
+
     s = {};
     EXPECT_THROW(r.get(), std::future_error);
 }
 
 TEST(OneShotChannelVoidTest, ExceptionPropagation) {
-    auto [s, r] = OneShotChannel<void>::make();
+    auto pair = OneShotChannel<void>::make();
+    auto& s = pair.first;
+    auto& r = pair.second;
+
     std::thread t([&]() {
         s.set_exception(std::make_exception_ptr(std::runtime_error("oops")));
     });
